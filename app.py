@@ -1,198 +1,246 @@
+
 import streamlit as st
 import numpy as np
-import tensorflow as tf
-from PIL import Image
+from PIL import Image, ImageOps
+from tensorflow import keras
 from streamlit_drawable_canvas import st_canvas
 
 
-# --------------------------------------------------
-# PAGE CONFIGURATION
-# --------------------------------------------------
-
 st.set_page_config(
     page_title="Handwritten Digit Recognition",
-    page_icon="🔢",
-    layout="wide"
+    page_icon="",
+    layout="centered"
 )
 
 
-# --------------------------------------------------
-# LOAD MODEL
-# --------------------------------------------------
+st.markdown("""
+<style>
+.stApp {
+    background-color: #111827;
+    color: white;
+}
+
+h1, h2, h3, p, label {
+    color: white !important;
+}
+
+.stButton > button {
+    background-color: #6C63FF;
+    color: white;
+    border-radius: 8px;
+    border: none;
+    padding: 10px 20px;
+    font-weight: bold;
+}
+
+.stButton > button:hover {
+    background-color: #5148e5;
+    color: white;
+}
+
+[data-testid="stFileUploader"] {
+    background-color: #1F2937;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 
 @st.cache_resource
 def load_model():
-    try:
-        model = tf.keras.models.load_model(
-            "digit_model.keras",
-            compile=False
-        )
-        return model
-
-    except Exception as e:
-        st.error("❌ Model could not be loaded.")
-        st.error(f"Error: {e}")
-        st.stop()
+    return keras.models.load_model("digit_model.keras")
 
 
 model = load_model()
 
 
-# --------------------------------------------------
-# HEADER
-# --------------------------------------------------
+def prepare_image(image, invert=True):
+    image = ImageOps.exif_transpose(image).convert("L")
+    arr = np.array(image)
 
-st.title("🔢 Handwritten Digit Recognition")
+    if invert:
+        border = np.concatenate((
+            arr[0, :],
+            arr[-1, :],
+            arr[:, 0],
+            arr[:, -1]
+        ))
 
-st.markdown(
-    """
-    ### CNN-Based Deep Learning Project
+        if np.median(border) > 127:
+            arr = 255 - arr
 
-    Draw a handwritten digit from **0 to 9** in the canvas below.
-    The trained Convolutional Neural Network will predict the digit.
-    """
+    mask = arr > 35
+
+    if not np.any(mask):
+        return None, None
+
+    ys, xs = np.where(mask)
+
+    digit = arr[
+        ys.min():ys.max() + 1,
+        xs.min():xs.max() + 1
+    ]
+
+    h, w = digit.shape
+
+    scale = 20 / max(h, w)
+
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+
+    digit_image = Image.fromarray(digit).resize(
+        (new_w, new_h),
+        Image.Resampling.LANCZOS
+    )
+
+    canvas = Image.new("L", (28, 28), 0)
+
+    x = (28 - new_w) // 2
+    y = (28 - new_h) // 2
+
+    canvas.paste(digit_image, (x, y))
+
+    input_array = np.asarray(
+        canvas,
+        dtype=np.float32
+    ) / 255.0
+
+    input_array = input_array.reshape(1, 28, 28, 1)
+
+    return canvas, input_array
+
+
+def show_prediction(input_data, processed_image):
+    predictions = model.predict(input_data, verbose=0)[0]
+
+    predicted_digit = int(np.argmax(predictions))
+    confidence = float(predictions[predicted_digit]) * 100
+
+    st.success(f"Predicted Digit: {predicted_digit}")
+
+    st.metric(
+        label="Confidence",
+        value=f"{confidence:.2f}%"
+    )
+
+    st.subheader("Processed Image")
+
+    st.image(
+        processed_image,
+        width=180,
+        caption="28 × 28 image given to the CNN"
+    )
+
+    st.subheader("Prediction Probabilities")
+
+    chart_data = {
+        "Digit": [str(i) for i in range(10)],
+        "Probability": predictions
+    }
+
+    st.bar_chart(
+        chart_data,
+        x="Digit",
+        y="Probability"
+    )
+
+
+st.title("Handwritten Digit Recognition")
+
+st.write(
+    "Upload an image or draw a digit from 0 to 9. "
+    "The CNN model will predict the digit."
 )
 
-st.divider()
+
+tab1, tab2 = st.tabs([
+    "Upload Image",
+    "Draw Digit"
+])
 
 
-# --------------------------------------------------
-# TWO COLUMNS
-# --------------------------------------------------
+with tab1:
+    st.subheader("Upload a Handwritten Digit")
 
-col1, col2 = st.columns(2)
+    uploaded_file = st.file_uploader(
+        "Choose an image",
+        type=["png", "jpg", "jpeg"]
+    )
+
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file)
+
+        st.image(
+            image,
+            caption="Uploaded Image",
+            width=250
+        )
+
+        if st.button("Predict Digit", key="upload_predict"):
+            processed_image, input_data = prepare_image(
+                image,
+                invert=True
+            )
+
+            if input_data is None:
+                st.warning(
+                    "No digit detected. Please upload a clear image."
+                )
+            else:
+                show_prediction(input_data, processed_image)
 
 
-# --------------------------------------------------
-# DRAWING CANVAS
-# --------------------------------------------------
+with tab2:
+    st.subheader("Draw a Digit")
 
-with col1:
+    st.write(
+        "Draw one digit using your mouse or touch screen."
+    )
 
-    st.subheader("✍️ Draw Your Digit")
-
+    
     canvas_result = st_canvas(
-        fill_color="black",
-        stroke_width=15,
-        stroke_color="white",
-        background_color="black",
-        height=300,
-        width=300,
+        fill_color="rgba(0, 0, 0, 0)",
+        stroke_width=18,
+        stroke_color="#FFFFFF",
+        background_color="#000000",
+        height=280,
+        width=280,
         drawing_mode="freedraw",
-        key="canvas",
-    )
-
-    predict_button = st.button(
-        "🔮 Predict Digit",
-        use_container_width=True
+        key="draw_digit",
+        update_streamlit=True,
+        return_image_data=True
     )
 
 
-# --------------------------------------------------
-# PREDICTION
-# --------------------------------------------------
+    if st.button("Predict Digit", key="draw_predict"):
+        try:
+            drawing = canvas_result.image_data
 
-with col2:
+            if drawing is None:
+                st.warning(
+                    "Draw a digit on the canvas first."
+                )
+            else:
+                rgb = drawing[:, :, :3].astype(np.uint8)
 
-    st.subheader("🤖 Prediction")
+                gray_image = Image.fromarray(rgb).convert("L")
 
-    if predict_button:
+                processed_image, input_data = prepare_image(
+                    gray_image,
+                    invert=False
+                )
 
-        if canvas_result.image_data is not None:
+                if input_data is None:
+                    st.warning(
+                        "Please draw a digit first."
+                    )
+                else:
+                    show_prediction(
+                        input_data,
+                        processed_image
+                    )
 
-            # Get canvas image
-            image = canvas_result.image_data
-
-            # Convert RGBA to grayscale
-            image = Image.fromarray(
-                image.astype("uint8")
-            ).convert("L")
-
-            # Resize to MNIST size
-            image = image.resize((28, 28))
-
-            # Convert image to NumPy array
-            image_array = np.array(image)
-
-            # Normalize pixel values
-            image_array = image_array.astype(
-                "float32"
-            ) / 255.0
-
-            # Reshape for CNN
-            image_array = image_array.reshape(
-                1, 28, 28, 1
-            )
-
-            # Make prediction
-            prediction = model.predict(
-                image_array,
-                verbose=0
-            )[0]
-
-            # Get predicted digit
-            predicted_digit = int(
-                np.argmax(prediction)
-            )
-
-            # Get confidence
-            confidence = float(
-                prediction[predicted_digit] * 100
-            )
-
-            # Display prediction
-            st.success(
-                f"Predicted Digit: {predicted_digit}"
-            )
-
-            st.metric(
-                "Confidence",
-                f"{confidence:.2f}%"
-            )
-
-            # Prediction probabilities
-            st.subheader(
-                "📊 Prediction Probabilities"
-            )
-
-            probabilities = {
-                str(i): float(prediction[i])
-                for i in range(10)
-            }
-
-            st.bar_chart(probabilities)
-
-        else:
-
-            st.warning(
-                "⚠️ Please draw a digit first."
-            )
-
-
-# --------------------------------------------------
-# ABOUT MODEL
-# --------------------------------------------------
-
-st.divider()
-
-st.subheader("🧠 About the Model")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric("Dataset", "MNIST")
-
-with col2:
-    st.metric("Image Size", "28 × 28")
-
-with col3:
-    st.metric("Classes", "10")
-
-
-st.info(
-    """
-    This application uses a Convolutional Neural Network (CNN)
-    trained on the MNIST handwritten digit dataset.
-    The model classifies handwritten digits from 0 to 9.
-    """
-)
+        except Exception as e:
+            st.error(f"Canvas error: {e}")
