@@ -1,7 +1,7 @@
 import streamlit as st
 import numpy as np
 import tensorflow as tf
-from PIL import Image, ImageOps
+from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 
 
@@ -22,7 +22,17 @@ st.set_page_config(
 
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model("digit_model.keras")
+    try:
+        model = tf.keras.models.load_model(
+            "digit_model.keras",
+            compile=False
+        )
+        return model
+
+    except Exception as e:
+        st.error("❌ Model could not be loaded.")
+        st.error(f"Error: {e}")
+        st.stop()
 
 
 model = load_model()
@@ -42,7 +52,6 @@ st.markdown(
     The trained Convolutional Neural Network will predict the digit.
     """
 )
-
 
 st.divider()
 
@@ -102,10 +111,10 @@ with col2:
             # Resize to MNIST size
             image = image.resize((28, 28))
 
-            # Convert to numpy
+            # Convert image to NumPy array
             image_array = np.array(image)
 
-            # Normalize
+            # Normalize pixel values
             image_array = image_array.astype(
                 "float32"
             ) / 255.0
@@ -115,21 +124,23 @@ with col2:
                 1, 28, 28, 1
             )
 
-            # Prediction
+            # Make prediction
             prediction = model.predict(
                 image_array,
                 verbose=0
             )[0]
 
-            predicted_digit = np.argmax(
-                prediction
+            # Get predicted digit
+            predicted_digit = int(
+                np.argmax(prediction)
             )
 
-            confidence = (
+            # Get confidence
+            confidence = float(
                 prediction[predicted_digit] * 100
             )
 
-            # Display result
+            # Display prediction
             st.success(
                 f"Predicted Digit: {predicted_digit}"
             )
@@ -140,7 +151,9 @@ with col2:
             )
 
             # Prediction probabilities
-            st.subheader("📊 Prediction Probabilities")
+            st.subheader(
+                "📊 Prediction Probabilities"
+            )
 
             probabilities = {
                 str(i): float(prediction[i])
@@ -152,7 +165,7 @@ with col2:
         else:
 
             st.warning(
-                "Please draw a digit first."
+                "⚠️ Please draw a digit first."
             )
 
 
@@ -180,6 +193,6 @@ st.info(
     """
     This application uses a Convolutional Neural Network (CNN)
     trained on the MNIST handwritten digit dataset.
-    The model classifies digits from 0 to 9.
+    The model classifies handwritten digits from 0 to 9.
     """
 )
