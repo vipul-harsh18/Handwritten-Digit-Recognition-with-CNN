@@ -1,5 +1,6 @@
-tensorflow
-numpy
+tensorflow==2.16.1
+keras==3.3.3
+numpy==1.26.4
 pillow
 streamlit
 streamlit-drawable-canvas
